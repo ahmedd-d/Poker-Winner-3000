@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'camera_screen.dart';
+import 'emotion_detector.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -20,11 +21,12 @@ class _DisclaimerScreenState extends State<DisclaimerScreen> {
   }
 
   Future<void> _initializeModelAndNavigate() async {
-    // TODO: Initialize TFLite model here
-    // await EmotionDetector.initialize();
-    
-    // For now, simulate model loading time
-    await Future.delayed(Duration(seconds: 2));
+    try {
+      // Initialize TFLite emotion detection model
+      await EmotionDetector.instance.initialize();
+    } catch (e) {
+      print('Error initializing model: $e');
+    }
     
     if (mounted) {
       Navigator.pushReplacement(

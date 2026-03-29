@@ -4,7 +4,7 @@ import cv2
 
 CLASS_NAMES = ['angry', 'contempt', 'disgust', 'fear', 'happy', 'natural', 'sad', 'sleepy', 'surprised']
 
-MODEL_PATH = r"C:\Users\Phillip\Desktop\coding projects\build4good2026\Poker-Winner-3000\runs_expr\expr_v1_small2\weights\best_saved_model\best_float32.tflite"
+MODEL_PATH = r"poker_winner_app/lib/best_float32.tflite"
 
 
 def xywh_to_xyxy(cx, cy, w, h):

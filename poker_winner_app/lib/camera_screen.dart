@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'emotion_detector.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -13,29 +14,29 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderStateMixin {
-  CameraController? cameraController;
-  bool grantedPermission = false;
-  bool initializing = true;
-  int frameCount = 0;
+  CameraController? _cameraController;
+  bool _grantedPermission = false;
+  bool _initializing = true;
+  int _frameCount = 0;
   
   // Detection results
   double bluffPercentage = 0.0;
-  double tensionScore = 0.0;
-  double calmScore = 0.0;
-  double confidencePercent = 0.0;
+  double tensionPercent = 0.0;
+  double calmPercent = 0.0;
   String label = "Analyzing...";
   
   // Vine boom overlay
-  bool showOverlay = false;
+  bool _showOverlay = false;
   AnimationController? _overlayController;
   Animation<double>? _overlayOpacity;
-  bool isBluffing = false; // true = bluffing (red), false = confident (green)
+  AudioPlayer? _audioPlayer;
 
   @override
   void initState() {
     super.initState();
+    _initializeAudio();
     
-    // Initialize overlay animation
+    // Image overlays
     _overlayController = AnimationController(
       duration: Duration(milliseconds: 1500),
       vsync: this,
@@ -48,33 +49,32 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
     _overlayController!.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         setState(() {
-          showOverlay = false;
+          _showOverlay = false;
         });
         _overlayController!.reset();
       }
     });
     
-    // Set up result listener
+    // result listener
     EmotionDetector.instance.onResultUpdate = _handleNewResult;
     
     _requestCameraPermission();
   }
 
+  Future<void> _initializeAudio() async {
+    _audioPlayer = AudioPlayer();
+    await _audioPlayer!.setSource(AssetSource("sounds/vine-boom.mp3"));
+    await _audioPlayer!.setVolume(1);
+  }
+
   Future<void> _requestCameraPermission() async {
     final status = await Permission.camera.request();
     
-    if (status.isGranted) {
-      setState(() {
-        grantedPermission = true;
-      });
-      await _initializeCamera();
-    } 
-    else {
-      setState(() {
-        grantedPermission = false;
-        initializing = false;
-      });
+    if (!status.isGranted) {
+      _initializing = false;
     }
+    setState(() { _grantedPermission = true; });
+    await _initializeCamera(); 
   }
 
   Future<void> _initializeCamera() async {
@@ -82,99 +82,85 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         setState(() {
-          initializing = false;
+          _initializing = false;
         });
         return;
       }
 
-      // Use the front camera for poker face detection
-      final frontCamera = cameras.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.front,
+      final backCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => cameras[0],
       );
       
-      cameraController = CameraController(
-        frontCamera,
-        ResolutionPreset.medium, // Medium should be sufficient for emotion detection
+      _cameraController = CameraController(
+        backCamera,
+        ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420,
+        imageFormatGroup: ImageFormatGroup.yuv420, // Native format, efficient RGB conversion
       );
 
-      await cameraController!.initialize();
+      await _cameraController!.initialize();
       
       setState(() {
-        initializing = false;
+        _initializing = false;
       });
 
       // Start streaming frames
       _startImageStream();
       
     } catch (e) {
+      // ignore: avoid_print
       print('Error initializing camera: $e');
       setState(() {
-        initializing = false;
+        _initializing = false;
       });
     }
   }
 
   void _startImageStream() {
-    if (cameraController == null) return;
+    if (_cameraController == null) return;
     
-    cameraController!.startImageStream((CameraImage image) {
-      frameCount++;
-      
-      // Process every 3rd frame (roughly 300ms at 10fps)
-      if (frameCount % 3 != 0) return;
-      
-      // EmotionDetector handles its own processing state check
+    _cameraController!.startImageStream((CameraImage image) {
+      _frameCount++;
+      if (_frameCount % 3 != 0) return; // try every third frame
       EmotionDetector.instance.processFrame(image);
     });
   }
 
-  /// Handle new aggregated result from EmotionDetector
+  // Display aggregated result from EmotionDetector
   void _handleNewResult(EmotionAnalysisResult result) {
     setState(() {
       bluffPercentage = result.bluffPercent;
-      tensionScore = result.tensionScore;
-      calmScore = result.calmScore;
-      confidencePercent = result.confidencePercent;
+      tensionPercent = result.tensionPercent;
+      calmPercent = result.calmPercent;
       label = result.label;
     });
 
-    // Trigger vine boom overlay for confident extreme readings
-    if (confidencePercent > 75) { // TODO: Adjust threshold based on testing
-      if (bluffPercentage > 85) {
-        _triggerOverlay(isBluffing: true);
-      } else if (bluffPercentage < 15) {
-        _triggerOverlay(isBluffing: false);
-      }
+    // Overlay and vine boom for high bluff
+    if (bluffPercentage > 85) {
+      _triggerOverlay();
     }
   }
 
-  /// Trigger the vine boom overlay animation
-  void _triggerOverlay({required bool isBluffing}) {
-    setState(() {
-      this.isBluffing = isBluffing;
-      showOverlay = true;
-    });
-    
-    // TODO: Play vine boom sound effect
-    // AudioPlayer.play('assets/sounds/vine_boom.mp3');
-    
+  void _triggerOverlay() {
+    setState(() { _showOverlay = true; });
+    _audioPlayer?.seek(Duration.zero);
+    _audioPlayer?.resume();
     _overlayController!.forward();
   }
 
   @override
   void dispose() {
     _overlayController?.dispose();
-    cameraController?.stopImageStream();
-    cameraController?.dispose();
+    _cameraController?.stopImageStream();
+    _cameraController?.dispose();
+    _audioPlayer?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (initializing) {
+    if (_initializing) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -183,7 +169,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
       );
     }
 
-    if (!grantedPermission) {
+    if (!_grantedPermission) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -228,7 +214,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
       );
     }
 
-    if (cameraController == null || !cameraController!.value.isInitialized) {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -244,7 +230,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Camera preview - 4:3 aspect ratio like iPhone camera
+          // Camera viewport
           Center(
             child: AspectRatio(
               aspectRatio: 3 / 4,
@@ -252,9 +238,9 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                 child: FittedBox(
                   fit: BoxFit.cover,
                   child: SizedBox(
-                    width: cameraController!.value.previewSize!.height,
-                    height: cameraController!.value.previewSize!.width,
-                    child: CameraPreview(cameraController!),
+                    width: _cameraController!.value.previewSize!.height,
+                    height: _cameraController!.value.previewSize!.width,
+                    child: CameraPreview(_cameraController!),
                   ),
                 ),
               ),
@@ -282,57 +268,28 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Bluff percentage - big and prominent
+                  // Bluff percentage and label
                   Text(
-                    '${bluffPercentage.toStringAsFixed(0)}%',
+                    '${bluffPercentage.toStringAsFixed(0)}% - ${label.toUpperCase()}',
                     style: GoogleFonts.orbitron(
-                      fontSize: 72,
+                      fontSize: 48,
                       fontWeight: FontWeight.bold,
                       color: _getColorForBluffPercentage(bluffPercentage),
                       height: 1.0,
                     ),
+                    textAlign: TextAlign.center,
                   ),
-                  SizedBox(height: 8),
+                  
+                  SizedBox(height: 24),
+                  
+                  // Analysis details: Calm and Tense percentages
                   Text(
-                    'BLUFF PROBABILITY',
+                    '${calmPercent.toStringAsFixed(0)}% CALM    ${tensionPercent.toStringAsFixed(0)}% TENSE',
                     style: GoogleFonts.orbitron(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w300,
-                      color: Color(0xFFFDFDFC),
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  
-                  // Divider
-                  Container(
-                    height: 1,
-                    width: 120,
-                    color: Colors.white30,
-                  ),
-                  
-                  SizedBox(height: 16),
-                  
-                  // Analysis details
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildScoreColumn('TENSION', tensionScore),
-                      _buildScoreColumn('CALM', calmScore),
-                      _buildScoreColumn('CONFIDENCE', confidencePercent),
-                    ],
-                  ),
-                  
-                  SizedBox(height: 12),
-                  
-                  // Label
-                  Text(
-                    label.toUpperCase(),
-                    style: GoogleFonts.orbitron(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFFDFDFC),
-                      letterSpacing: 2,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.white70,
+                      letterSpacing: 1.5,
                     ),
                   ),
                 ],
@@ -340,36 +297,20 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
             ),
           ),
           
-          // Vine boom overlay
-          if (showOverlay)
+          // Vine boom overlay - just the meme image
+          if (_showOverlay)
             AnimatedBuilder(
               animation: _overlayOpacity!,
               builder: (context, child) {
                 return Opacity(
                   opacity: _overlayOpacity!.value,
                   child: Container(
-                    color: (isBluffing ? Colors.red : Colors.green).withOpacity(0.7),
+                    color: Colors.black.withOpacity(0.3),
                     child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // TODO: Replace with actual image assets
-                          Icon(
-                            isBluffing ? Icons.warning_rounded : Icons.check_circle_rounded,
-                            size: 120,
-                            color: Colors.white,
-                          ),
-                          SizedBox(height: 24),
-                          Text(
-                            isBluffing ? 'BLUFFING!' : 'CONFIDENT!',
-                            style: GoogleFonts.orbitron(
-                              fontSize: 48,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: 2,
-                            ),
-                          ),
-                        ],
+                      child: Image.asset(
+                        'assets/images/jackpot.jpg', 
+                        width: MediaQuery.of(context).size.width * 0.8,
+                        fit: BoxFit.contain,
                       ),
                     ),
                   ),
@@ -378,31 +319,6 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
             ),
         ],
       ),
-    );
-  }
-
-  Widget _buildScoreColumn(String label, double value) {
-    return Column(
-      children: [
-        Text(
-          value.toStringAsFixed(1),
-          style: GoogleFonts.orbitron(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFFFDFDFC),
-          ),
-        ),
-        SizedBox(height: 4),
-        Text(
-          label,
-          style: GoogleFonts.orbitron(
-            fontSize: 9,
-            fontWeight: FontWeight.w300,
-            color: Colors.white60,
-            letterSpacing: 1,
-          ),
-        ),
-      ],
     );
   }
 

@@ -13,6 +13,9 @@ dependencies:
   loading_animation_widget:
   permission_handler: 
   camera: 
+  audioplayers:
+  tflite_flutter: ^0.10.4
+  image: ^4.0.0 
     
 
 dev_dependencies:
@@ -24,11 +27,14 @@ flutter:
   uses-material-design: true
   
   assets:
+  - assets/
   - assets/fonts/sterion-font/info.txt
+  - assets/sounds/
+  - assets/images/
   
   fonts:
     - family: Sterion
       fonts:
-      - asset: asset/fonts/sterion-font/Sterion-BLLld.ttf
+      - asset: assets/fonts/sterion-font/Sterion-BLLld.ttf
       - asset: assets/fonts/sterion-font/SterionItalic-R99PA.ttf
         style: italic
