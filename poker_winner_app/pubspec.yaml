@@ -1,0 +1,34 @@
+name: poker_winner_app
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: 
+  loading_animation_widget:
+  permission_handler: 
+  camera: 
+    
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+  - assets/fonts/sterion-font/info.txt
+  
+  fonts:
+    - family: Sterion
+      fonts:
+      - asset: asset/fonts/sterion-font/Sterion-BLLld.ttf
+      - asset: assets/fonts/sterion-font/SterionItalic-R99PA.ttf
+        style: italic
